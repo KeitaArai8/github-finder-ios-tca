@@ -1,0 +1,74 @@
+name: iOS CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-and-test:
+    name: Build & Test
+    # `xcode-27` is a preview runner label whose image ships Xcode 27.0/27.1,
+    # matching the local toolchain (Xcode 27.1 / Swift 6.4).
+    # Fallback: if the preview label is unavailable, use `macos-26` (macos-latest)
+    # with Xcode 26.6 and set `xcode-version` below accordingly.
+    runs-on: xcode-27
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Select Xcode
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: '27.1'
+
+      - name: Show Xcode version
+        run: xcodebuild -version
+
+      - name: Resolve Swift Packages
+        run: xcodebuild -resolvePackageDependencies -project GitHubFinder.xcodeproj -scheme GitHubFinder -derivedDataPath DerivedData
+
+      # xcbeautify is preinstalled on the xcode-27 image (3.2.1); no brew step needed.
+      # If it is ever missing, add a `brew install xcbeautify` step here.
+      # -skipMacroValidation: TCA などが提供する Swift マクロは、コマンドラインでは信頼確認のダイアログを
+      # 出せないため、このフラグが無いと "must be enabled before it can be used" でビルドが失敗する。
+      - name: Build for testing
+        run: |
+          set -o pipefail
+          xcodebuild build-for-testing \
+            -project GitHubFinder.xcodeproj \
+            -scheme GitHubFinder \
+            -skipMacroValidation \
+            -destination 'platform=iOS Simulator,name=iPhone 17,OS=latest' \
+            -derivedDataPath DerivedData \
+            -resultBundlePath BuildResults.xcresult \
+            CODE_SIGN_IDENTITY=- CODE_SIGNING_REQUIRED=NO CODE_SIGN_STYLE=Manual DEVELOPMENT_TEAM= PROVISIONING_PROFILE_SPECIFIER= | xcbeautify
+
+      - name: Unit Test
+        run: |
+          set -o pipefail
+          xcodebuild test-without-building \
+            -project GitHubFinder.xcodeproj \
+            -scheme GitHubFinder \
+            -destination 'platform=iOS Simulator,name=iPhone 17,OS=latest' \
+            -derivedDataPath DerivedData \
+            -only-testing:GitHubFinderTests \
+            -resultBundlePath TestResults.xcresult \
+            CODE_SIGN_IDENTITY=- CODE_SIGNING_REQUIRED=NO CODE_SIGN_STYLE=Manual DEVELOPMENT_TEAM= PROVISIONING_PROFILE_SPECIFIER= | xcbeautify
+
+      - name: Upload Test Results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: TestResults
+          path: |
+            BuildResults.xcresult
+            TestResults.xcresult
+          if-no-files-found: ignore
+          retention-days: 7

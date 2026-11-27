@@ -1,0 +1,115 @@
+# iOS defacto reference sources for github-finder-ios-tca.
+#
+# type:
+#   web_doc          - Web ドキュメント。WebFetch で内容差分検出
+#   github_releases  - GitHub Releases。`gh api repos/{owner}/{repo}/releases/latest` で latest tag 検出
+#   github_commits   - 任意ブランチの commits。`gh api repos/{owner}/{repo}/commits` で latest SHA 検出
+#
+# role:
+#   iOS は Apple が唯一の公式ソースなので全 source を `official` とする
+#   (Android 側の design / version / third-party の 3 層は iOS では使わない)。
+#
+# URL 方針:
+#   developer.apple.com/documentation/... の HTML は JS レンダリングで WebFetch がタイトルしか返さない。
+#   /tutorials/data/documentation/... の `.json` (HTML パスと 1:1 対応) は素の JSON で読めるので、そちらを使う。
+#
+# noise_filter.keywords:
+#   検出対象として注目するキーワード。空配列なら全変化を報告。
+#   特定キーワードを含む section の変化のみ Issue 化することでノイズを削減する。
+
+sources:
+  # ===== Apple 公式 ドキュメント (JSON endpoint) =====
+
+  - id: apple-swiftui
+    name: SwiftUI Documentation (JSON)
+    url: https://developer.apple.com/tutorials/data/documentation/swiftui.json
+    type: web_doc
+    role: official
+    noise_filter:
+      keywords: [Deprecated, Removed, "Available in", "renamed", "replaced by"]
+
+  - id: apple-swiftdata
+    name: SwiftData Documentation (JSON)
+    url: https://developer.apple.com/tutorials/data/documentation/swiftdata.json
+    type: web_doc
+    role: official
+    noise_filter:
+      keywords: [Deprecated, schema, migration, "Available in", "@Model"]
+
+  - id: apple-observable-migration
+    name: ObservableObject → Observable Migration Guide (JSON)
+    url: https://developer.apple.com/tutorials/data/documentation/swiftui/migrating-from-the-observable-object-protocol-to-the-observable-macro.json
+    type: web_doc
+    role: official
+    noise_filter:
+      keywords: [Deprecated, "no longer", recommended, "@Observable"]
+
+  - id: apple-widgetkit
+    name: WidgetKit Documentation (JSON)
+    url: https://developer.apple.com/tutorials/data/documentation/widgetkit.json
+    type: web_doc
+    role: official
+    noise_filter:
+      keywords: [Deprecated, "Available in", AppIntent]
+
+  # ===== Xcode リリースノート (JSON endpoint) =====
+
+  - id: xcode-27-release-notes
+    name: Xcode 27 Release Notes (JSON)
+    url: https://developer.apple.com/tutorials/data/documentation/xcode-release-notes/xcode-27-release-notes.json
+    type: web_doc
+    role: official
+    noise_filter:
+      keywords: [Deprecated, Removed, "Known Issues", "Swift 6", "Swift Testing", SwiftUI, simulator, "minimum deployment"]
+
+  - id: xcode-26-release-notes
+    name: Xcode 26 Release Notes (JSON)
+    url: https://developer.apple.com/tutorials/data/documentation/xcode-release-notes/xcode-26-release-notes.json
+    type: web_doc
+    role: official
+    noise_filter:
+      keywords: [Deprecated, Removed, "Known Issues", "Swift 6", "Swift Testing", SwiftUI, simulator, "minimum deployment"]
+
+  # ===== Swift 言語 / ツールチェーン =====
+
+  - id: swift-org-blog
+    name: Swift.org Blog (release announcements)
+    url: https://www.swift.org/blog/
+    type: web_doc
+    role: official
+    noise_filter:
+      keywords: ["Swift 6", Released, "What's new in Swift", "Swift Testing", Concurrency]
+
+  - id: swift-evolution
+    name: Swift Evolution (accepted proposals)
+    repo: apple/swift-evolution
+    type: github_commits
+    branch: main
+    role: official
+    noise_filter:
+      keywords: [accepted, "implemented in"]
+
+  - id: swift-testing
+    name: Swift Testing Releases
+    repo: swiftlang/swift-testing
+    type: github_releases
+    role: official
+    noise_filter:
+      keywords: [breaking, "renamed", deprecated]
+
+  # ===== CI ランナー (Xcode / simulator の在庫) =====
+  # github_commits はパスフィルタ非対応のため、runner-images の README を web_doc で直接監視する。
+  # macos-27 の README は 2026-10-24 時点で 404 (未公開)。公開されたらここに追加すること。
+
+  - id: runner-images-macos-26
+    name: GitHub Actions macOS 26 arm64 image inventory
+    url: https://raw.githubusercontent.com/actions/runner-images/main/images/macos/macos-26-arm64-Readme.md
+    type: web_doc
+    role: official
+    noise_filter:
+      keywords: [Xcode, Simulator, "iOS 2", "default", Announcements, deprecat]
+
+# Issue 出力用の repo 設定。
+# `git remote get-url origin` から自動検出するが、上書きしたい場合はここで指定。
+repo_override:
+  github: null   # null なら git remote から自動検出 (推奨)

@@ -1,0 +1,40 @@
+# macOS
+.DS_Store
+
+# Xcode
+build/
+DerivedData/
+
+# Xcode user-specific
+xcuserdata/
+*.xcuserstate
+*.xcworkspace/xcuserdata/
+*.xcodeproj/project.xcworkspace/xcuserdata/
+*.xcodeproj/xcuserdata/
+
+# Swift Package Manager（Package.resolved はコミット推奨のため除外しない）
+.build/
+.swiftpm/
+
+# CocoaPods（このプロジェクトでは未使用、念のため）
+Pods/
+
+# Carthage（未使用）
+Carthage/Build/
+
+# fastlane（未使用、慣例として）
+fastlane/report.xml
+fastlane/Preview.html
+fastlane/screenshots/**/*.png
+fastlane/test_output
+
+# Code Injection
+iOSInjectionProject/
+
+# Local secrets（万一作られた場合に備えて）
+*.pem
+*.p12
+*.mobileprovision
+*.cer
+.env
+.env.local
