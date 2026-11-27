@@ -30,17 +30,22 @@ struct FavoriteFeatureTests {
     @Test("初回読み込み中は loading で、お気に入りがあれば完了後に loaded になる")
     func taskShowsLoadingThenLoaded() async {
         // Arrange: お気に入り1件を返すお気に入りクライアント
+        let gate = EffectGate()
         let favorite = TestData.makeFavorite(id: 1)
         let store = TestStore(initialState: FavoriteFeature.State(favorites: Shared(value: []))) {
             FavoriteFeature()
         } withDependencies: {
-            $0.favoriteClient.refresh = { [favorite] }
+            $0.favoriteClient.refresh = {
+                await gate.wait()
+                return [favorite]
+            }
         }
 
         // Act: 画面表示時の読み込みを開始
         await store.send(.view(.task)) {
             $0.hasStartedLoading = true
         }
+        gate.open()
 
         // Assert: 読み込みが終わるまでは loading
         #expect(store.state.viewState == .loading)
@@ -57,16 +62,21 @@ struct FavoriteFeatureTests {
     @Test("お気に入りが空の場合empty状態になる")
     func taskWithNoFavoritesTransitionsToEmpty() async {
         // Arrange: 空の一覧を返すお気に入りクライアント
+        let gate = EffectGate()
         let store = TestStore(initialState: FavoriteFeature.State(favorites: Shared(value: []))) {
             FavoriteFeature()
         } withDependencies: {
-            $0.favoriteClient.refresh = { [] }
+            $0.favoriteClient.refresh = {
+                await gate.wait()
+                return []
+            }
         }
 
         // Act: 画面表示時の読み込みを実行
         await store.send(.view(.task)) {
             $0.hasStartedLoading = true
         }
+        gate.open()
         await store.receive(\.internal.loadResponse) {
             $0.hasLoaded = true
         }
@@ -79,6 +89,7 @@ struct FavoriteFeatureTests {
     @Test("引っ張って更新で最新データに更新される")
     func refreshPulledReloadsLatestData() async {
         // Arrange: お気に入り1件のloaded状態と、2件に増えた一覧を返すお気に入りクライアント
+        let gate = EffectGate()
         let favorite1 = TestData.makeFavorite(id: 1, fullName: "owner/repo1", savedAt: Date(timeIntervalSince1970: 2_000))
         let favorite2 = TestData.makeFavorite(id: 2, fullName: "owner/repo2", savedAt: Date(timeIntervalSince1970: 1_000))
         var state = FavoriteFeature.State(favorites: Shared(value: []))
@@ -88,11 +99,15 @@ struct FavoriteFeatureTests {
         let store = TestStore(initialState: state) {
             FavoriteFeature()
         } withDependencies: {
-            $0.favoriteClient.refresh = { [favorite1, favorite2] }
+            $0.favoriteClient.refresh = {
+                await gate.wait()
+                return [favorite1, favorite2]
+            }
         }
 
         // Act: 引っ張って更新
         await store.send(.view(.refreshPulled))
+        gate.open()
 
         // Assert: 2件に更新される
         await store.receive(\.internal.loadResponse) {
@@ -107,6 +122,7 @@ struct FavoriteFeatureTests {
     @Test("お気に入り削除後にリストが更新される")
     func swipeDeleteUpdatesList() async {
         // Arrange: お気に入り2件のloaded状態と、削除された ID を記録するお気に入りクライアント
+        let gate = EffectGate()
         let favorite1 = TestData.makeFavorite(id: 1, fullName: "owner/repo1")
         let favorite2 = TestData.makeFavorite(id: 2, fullName: "owner/repo2")
         let removedIDs = LockIsolated<[Int]>([])
@@ -118,6 +134,7 @@ struct FavoriteFeatureTests {
             FavoriteFeature()
         } withDependencies: {
             $0.favoriteClient.remove = { id in
+                await gate.wait()
                 removedIDs.withValue { $0.append(id) }
                 return [favorite2]
             }
@@ -125,6 +142,7 @@ struct FavoriteFeatureTests {
 
         // Act: id=1 の行をスワイプ削除
         await store.send(.view(.rowsSwipeDeleted(ids: [1])))
+        gate.open()
 
         // Assert: id=1 で remove が1回呼ばれ、残りの1件だけが表示される
         await store.receive(\.internal.removeResponse) {
@@ -138,6 +156,7 @@ struct FavoriteFeatureTests {
     @Test("最後の1件を削除するとempty状態になる")
     func swipeDeleteLastFavoriteTransitionsToEmpty() async {
         // Arrange: お気に入り1件のloaded状態と、削除後に空の一覧を返すお気に入りクライアント
+        let gate = EffectGate()
         var state = FavoriteFeature.State(favorites: Shared(value: []))
         state.hasStartedLoading = true
         state.hasLoaded = true
@@ -145,11 +164,15 @@ struct FavoriteFeatureTests {
         let store = TestStore(initialState: state) {
             FavoriteFeature()
         } withDependencies: {
-            $0.favoriteClient.remove = { _ in [] }
+            $0.favoriteClient.remove = { _ in
+                await gate.wait()
+                return []
+            }
         }
 
         // Act: 最後の1件をスワイプ削除
         await store.send(.view(.rowsSwipeDeleted(ids: [1])))
+        gate.open()
         await store.receive(\.internal.removeResponse) {
             $0.$favorites.withLock { $0 = [] }
         }
@@ -483,6 +506,7 @@ struct FavoriteFeatureTests {
     @Test("確認ダイアログで削除を確定すると選択中の項目が一括削除される")
     func confirmDeletionRemovesSelectedItems() async {
         // Arrange: お気に入り3件・編集モードで2件選択し、確認ダイアログを表示中。削除された ID を記録するお気に入りクライアント
+        let gate = EffectGate()
         let favorite3 = TestData.makeFavorite(id: 3)
         let remaining = LockIsolated([TestData.makeFavorite(id: 1), TestData.makeFavorite(id: 2), favorite3])
         let removedIDs = LockIsolated<[Int]>([])
@@ -497,6 +521,7 @@ struct FavoriteFeatureTests {
             FavoriteFeature()
         } withDependencies: {
             $0.favoriteClient.remove = { id in
+                await gate.wait()
                 removedIDs.withValue { $0.append(id) }
                 return remaining.withValue {
                     $0.removeAll { $0.id == id }
@@ -509,6 +534,7 @@ struct FavoriteFeatureTests {
         await store.send(.destination(.presented(.confirmationDialog(.confirmDeletion)))) {
             $0.destination = nil
         }
+        gate.open()
 
         // Assert: 選択した2件が削除され、残り1件・選択クリア・確認ダイアログ閉
         await store.receive(\.internal.bulkRemoveResponse) {
@@ -524,6 +550,7 @@ struct FavoriteFeatureTests {
     @Test("一括削除が途中で失敗すると、成功した分だけ反映してエラーアラートを表示する")
     func bulkDeleteFailureKeepsSucceededRemovals() async {
         // Arrange: お気に入り2件・編集モードで全選択し、確認ダイアログを表示中。id=1 の削除は成功し id=2 の削除は失敗するお気に入りクライアント
+        let gate = EffectGate()
         let favorite2 = TestData.makeFavorite(id: 2)
         var state = FavoriteFeature.State(favorites: Shared(value: []))
         state.hasStartedLoading = true
@@ -536,6 +563,7 @@ struct FavoriteFeatureTests {
             FavoriteFeature()
         } withDependencies: {
             $0.favoriteClient.remove = { id in
+                await gate.wait()
                 if id == 2 { throw AppError.unknown("Mock error") }
                 return [favorite2]
             }
@@ -545,6 +573,7 @@ struct FavoriteFeatureTests {
         await store.send(.destination(.presented(.confirmationDialog(.confirmDeletion)))) {
             $0.destination = nil
         }
+        gate.open()
 
         // Assert: 削除できた id=1 だけが一覧から消え、エラーアラートが表示される（選択と編集モードは維持）
         await store.receive(\.internal.removeFailed) {
@@ -558,6 +587,7 @@ struct FavoriteFeatureTests {
     @Test("全件削除すると編集モードが自動終了する")
     func bulkDeleteAllExitsEditMode() async {
         // Arrange: お気に入り2件・編集モードで全選択し、確認ダイアログを表示中
+        let gate = EffectGate()
         let remaining = LockIsolated([TestData.makeFavorite(id: 1), TestData.makeFavorite(id: 2)])
         var state = FavoriteFeature.State(favorites: Shared(value: []))
         state.hasStartedLoading = true
@@ -570,7 +600,8 @@ struct FavoriteFeatureTests {
             FavoriteFeature()
         } withDependencies: {
             $0.favoriteClient.remove = { id in
-                remaining.withValue {
+                await gate.wait()
+                return remaining.withValue {
                     $0.removeAll { $0.id == id }
                     return $0
                 }
@@ -581,6 +612,7 @@ struct FavoriteFeatureTests {
         await store.send(.destination(.presented(.confirmationDialog(.confirmDeletion)))) {
             $0.destination = nil
         }
+        gate.open()
         await store.receive(\.internal.bulkRemoveResponse) {
             $0.$favorites.withLock { $0 = [] }
             $0.storedSelectedIDs = []
@@ -596,6 +628,7 @@ struct FavoriteFeatureTests {
     @Test("お気に入りが空になって編集モードが終わった後、お気に入りが増えても編集モード・選択は戻らない")
     func editModeAndSelectionDoNotComeBackAfterEmptied() async {
         // Arrange: 一括削除で全件空になり編集モードが終了した直後の状態と、1件増えた一覧を返すお気に入りクライアント
+        let gate = EffectGate()
         let favorite = TestData.makeFavorite(id: 3)
         var state = FavoriteFeature.State(favorites: Shared(value: []))
         state.hasStartedLoading = true
@@ -603,11 +636,15 @@ struct FavoriteFeatureTests {
         let store = TestStore(initialState: state) {
             FavoriteFeature()
         } withDependencies: {
-            $0.favoriteClient.refresh = { [favorite] }
+            $0.favoriteClient.refresh = {
+                await gate.wait()
+                return [favorite]
+            }
         }
 
         // Act: 空になった後にお気に入りが1件増えて再読み込みされる
         await store.send(.view(.refreshPulled))
+        gate.open()
         await store.receive(\.internal.loadResponse) {
             $0.$favorites.withLock { $0 = [favorite] }
         }
@@ -624,19 +661,24 @@ struct FavoriteFeatureTests {
     @Test("デフォルトのソートは savedAtDesc（保存が新しい順）")
     func defaultSortIsSavedAtDesc() async {
         // Arrange: savedAt が異なる 3 件を古い→新しい順で返すお気に入りクライアント
+        let gate = EffectGate()
         let old = TestData.makeFavorite(id: 1, fullName: "owner/old", savedAt: Date(timeIntervalSince1970: 1_000))
         let mid = TestData.makeFavorite(id: 2, fullName: "owner/mid", savedAt: Date(timeIntervalSince1970: 2_000))
         let new = TestData.makeFavorite(id: 3, fullName: "owner/new", savedAt: Date(timeIntervalSince1970: 3_000))
         let store = TestStore(initialState: FavoriteFeature.State(favorites: Shared(value: []))) {
             FavoriteFeature()
         } withDependencies: {
-            $0.favoriteClient.refresh = { [old, mid, new] }
+            $0.favoriteClient.refresh = {
+                await gate.wait()
+                return [old, mid, new]
+            }
         }
 
         // Act: 読み込み（デフォルト sortKey = savedAtDesc）
         await store.send(.view(.task)) {
             $0.hasStartedLoading = true
         }
+        gate.open()
         await store.receive(\.internal.loadResponse) {
             $0.$favorites.withLock { $0 = [old, mid, new] }
             $0.hasLoaded = true
@@ -771,6 +813,7 @@ struct FavoriteFeatureTests {
     @Test("フィルタ対象の言語が消失したら自動でクリアされる")
     func filterLanguageAutoClearsWhenLanguageGone() async {
         // Arrange: Swift にフィルタ済みのloaded状態と、Swift のお気に入りの削除後に Kotlin の1件だけを返すお気に入りクライアント
+        let gate = EffectGate()
         let kotlin = TestData.makeFavorite(id: 2, language: "Kotlin")
         var state = FavoriteFeature.State(favorites: Shared(value: []))
         state.hasStartedLoading = true
@@ -780,11 +823,15 @@ struct FavoriteFeatureTests {
         let store = TestStore(initialState: state) {
             FavoriteFeature()
         } withDependencies: {
-            $0.favoriteClient.remove = { _ in [kotlin] }
+            $0.favoriteClient.remove = { _ in
+                await gate.wait()
+                return [kotlin]
+            }
         }
 
         // Act: Swift のお気に入りをスワイプ削除
         await store.send(.view(.rowsSwipeDeleted(ids: [1])))
+        gate.open()
         await store.receive(\.internal.removeResponse) {
             $0.$favorites.withLock { $0 = [kotlin] }
             $0.storedFilterLanguage = nil
@@ -799,6 +846,7 @@ struct FavoriteFeatureTests {
     @Test("フィルタ対象の言語が消失してクリアされた後、その言語が戻ってもフィルタは復活しない")
     func filterLanguageDoesNotComeBackAfterLanguageReturns() async {
         // Arrange: Swift のフィルタがクリアされた直後の状態（Kotlin 1件）と、Swift が再び増えた一覧を返すお気に入りクライアント
+        let gate = EffectGate()
         let kotlin = TestData.makeFavorite(id: 2, language: "Kotlin", savedAt: Date(timeIntervalSince1970: 2_000))
         let swift = TestData.makeFavorite(id: 4, language: "Swift", savedAt: Date(timeIntervalSince1970: 1_000))
         var state = FavoriteFeature.State(favorites: Shared(value: []))
@@ -808,11 +856,15 @@ struct FavoriteFeatureTests {
         let store = TestStore(initialState: state) {
             FavoriteFeature()
         } withDependencies: {
-            $0.favoriteClient.refresh = { [kotlin, swift] }
+            $0.favoriteClient.refresh = {
+                await gate.wait()
+                return [kotlin, swift]
+            }
         }
 
         // Act: Swift のお気に入りが再び増えて再読み込みされる
         await store.send(.view(.refreshPulled))
+        gate.open()
         await store.receive(\.internal.loadResponse) {
             $0.$favorites.withLock { $0 = [kotlin, swift] }
         }

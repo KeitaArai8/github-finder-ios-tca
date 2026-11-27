@@ -389,6 +389,7 @@ GitHubFinderApp
 - SwiftData `ModelConfiguration(isStoredInMemoryOnly: true)` でハーメティックな DB テスト
 - Reducer は `TestStore` で検証（State の変化と受信する Action を網羅的に assert。依存は `withDependencies` でクロージャに差し替え）
 - debounce は `TestClock` を進めて検証（実時間の待機なし）
+- `@Shared` の State を Effect の応答で書き換えるテストは、依存クライアントの完了を `EffectGate` で `store.send` の assert の後まで待たせる（共有 State は参照なので、応答が先に処理されると assert 時点の State に変更が見えてしまうため）
 - `// Arrange:` / `// Act:` / `// Assert:` の AAA コメント必須
 
 ## セットアップ

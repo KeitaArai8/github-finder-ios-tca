@@ -76,6 +76,7 @@ struct AppFeatureTests {
     @Test("検索画面でのお気に入り追加が、お気に入り画面の一覧へすぐ反映される")
     func favoriteAddedInSearchIsSharedWithFavoriteTab() async {
         // Arrange: 検索結果1件（お気に入り未登録）を表示中。追加後の一覧を返すお気に入りクライアント
+        let gate = EffectGate()
         let favorite = TestData.makeFavorite(id: 42)
         var state = AppFeature.State()
         state.search.searchQuery = "test"
@@ -84,11 +85,15 @@ struct AppFeatureTests {
         let store = TestStore(initialState: state) {
             AppFeature()
         } withDependencies: {
-            $0.favoriteClient.add = { _ in [favorite] }
+            $0.favoriteClient.add = { _ in
+                await gate.wait()
+                return [favorite]
+            }
         }
 
         // Act: 検索画面でハートボタンをタップ
         await store.send(.search(.view(.favoriteButtonTapped(id: 42))))
+        gate.open()
         await store.receive(\.search.internal.favoritesResponse) {
             $0.search.$favorites.withLock { $0 = [favorite] }
         }

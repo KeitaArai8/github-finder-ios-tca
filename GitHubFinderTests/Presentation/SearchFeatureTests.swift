@@ -396,6 +396,7 @@ struct SearchFeatureTests {
     @Test("お気に入りトグルでisFavoriteがtrueになる")
     func favoriteButtonAddsFavorite() async {
         // Arrange: 検索結果1件（お気に入り未登録）のloaded状態と、追加されたリポジトリを記録するお気に入りクライアント
+        let gate = EffectGate()
         let repository = TestData.makeRepository(id: 42)
         let favorite = TestData.makeFavorite(id: 42)
         let addedRepositories = LockIsolated<[RepositoryEntity]>([])
@@ -407,6 +408,7 @@ struct SearchFeatureTests {
             SearchFeature()
         } withDependencies: {
             $0.favoriteClient.add = { repository in
+                await gate.wait()
                 addedRepositories.withValue { $0.append(repository) }
                 return [favorite]
             }
@@ -414,6 +416,7 @@ struct SearchFeatureTests {
 
         // Act: ハートボタンをタップ
         await store.send(.view(.favoriteButtonTapped(id: 42)))
+        gate.open()
 
         // Assert: isFavoriteがtrueに変わり、対象のリポジトリで add が1回呼ばれる
         await store.receive(\.internal.favoritesResponse) {
@@ -427,6 +430,7 @@ struct SearchFeatureTests {
     @Test("お気に入り解除でisFavoriteがfalseになる")
     func favoriteButtonRemovesFavorite() async {
         // Arrange: 検索結果1件（お気に入り済み）のloaded状態と、削除された ID を記録するお気に入りクライアント
+        let gate = EffectGate()
         let repository = TestData.makeRepository(id: 42)
         let removedIDs = LockIsolated<[Int]>([])
         var state = SearchFeature.State(favorites: Shared(value: []))
@@ -438,6 +442,7 @@ struct SearchFeatureTests {
             SearchFeature()
         } withDependencies: {
             $0.favoriteClient.remove = { id in
+                await gate.wait()
                 removedIDs.withValue { $0.append(id) }
                 return []
             }
@@ -445,6 +450,7 @@ struct SearchFeatureTests {
 
         // Act: ハートボタンをタップ
         await store.send(.view(.favoriteButtonTapped(id: 42)))
+        gate.open()
 
         // Assert: isFavoriteがfalseに変わり、対象の ID で remove が1回呼ばれる
         await store.receive(\.internal.favoritesResponse) {
@@ -461,6 +467,9 @@ struct SearchFeatureTests {
         let repository = TestData.makeRepository(id: 42)
         let favorite = TestData.makeFavorite(id: 42)
         let favorites = LockIsolated<[FavoriteEntity]>([favorite])
+        let firstGate = EffectGate()
+        let secondGate = EffectGate()
+        let refreshCallCount = LockIsolated(0)
         var state = SearchFeature.State(favorites: Shared(value: []))
         state.searchQuery = "test"
         state.lastSearchedQuery = "test"
@@ -468,12 +477,17 @@ struct SearchFeatureTests {
         let store = TestStore(initialState: state) {
             SearchFeature()
         } withDependencies: {
-            $0.favoriteClient.refresh = { favorites.value }
+            $0.favoriteClient.refresh = {
+                let callCount = refreshCallCount.withValue { $0 += 1; return $0 }
+                await (callCount == 1 ? firstGate : secondGate).wait()
+                return favorites.value
+            }
             $0.searchHistoryClient.history = { [] }
         }
 
         // Act: お気に入りタブで追加された後、検索タブへ戻って読み込みが走る
         await store.send(.view(.task))
+        firstGate.open()
 
         // Assert: 追加が isFavorite == true として反映される
         await store.receive(\.internal.loadResponse) {
@@ -484,6 +498,7 @@ struct SearchFeatureTests {
         // Act: お気に入りタブで削除された後、再び読み込みが走る
         favorites.setValue([])
         await store.send(.view(.task))
+        secondGate.open()
 
         // Assert: 削除が isFavorite == false として反映される
         await store.receive(\.internal.loadResponse) {
